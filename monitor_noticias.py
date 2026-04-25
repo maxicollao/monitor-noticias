@@ -6,8 +6,8 @@ import subprocess
 from datetime import datetime
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-TELEGRAM_TOKEN = "8436226379:AAHsZSIIaMb6ROvHvypm4Cdn3vqWg-aARJo"
-TELEGRAM_CHAT_ID = "8309799765"
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 INTERVALO_MINUTOS = 30
 
 def enviar_telegram(mensaje):
