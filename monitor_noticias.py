@@ -103,10 +103,10 @@ def revisar_respuesta_telegram():
 
 def main():
     print("="*55)
-    print("  MONITOR DE NOTICIAS - MAX COLLAO")
+    print("  ROMAN - MONITOR DE NOTICIAS MAX COLLAO")
     print(f"  Iniciado: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
     print(f"  Revisando cada {INTERVALO_MINUTOS} minutos")
-    print(f"  Alertas -> Telegram @MaxCollao_bot")
+    print(f"  ROMAN -> Alertas Telegram @MaxCollao_bot")
     print("  Ctrl+C para detener")
     print("="*55)
 
@@ -116,7 +116,7 @@ def main():
 
     # Mensaje de inicio a Telegram
     enviar_telegram(
-        "✅ <b>Monitor MaxCollao activado</b>\n"
+        "✅ <b>ROMAN activado</b>\n"
         f"Revisando tendencias Chile cada {INTERVALO_MINUTOS} minutos.\n"
         "Te aviso cuando explote algo relevante."
     )
@@ -172,4 +172,4 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\nMonitor detenido.")
-        enviar_telegram("⚠️ Monitor MaxCollao detenido.")
+        enviar_telegram("⚠️ ROMAN detenido.")
