@@ -21,6 +21,12 @@ def enviar_telegram(mensaje):
     except Exception as e:
         print(f"  Error Telegram: {e}")
 
+
+def generar_libreto(tema):
+    prompt = f"Eres Max Collao, ex periodista de TV chilena reconvertido a creador digital con 117K seguidores. Genera un libreto urgente para grabar un video de 3-5 minutos sobre: {tema}. Incluye: gancho inicial potente, desarrollo con datos reales, opinion directa e intensa, cierre con llamada a accion. Estilo directo, sin rodeos, para redes sociales chilenas."
+    r = requests.post("https://api.anthropic.com/v1/messages", headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json"}, json={"model": "claude-haiku-4-5-20251001", "max_tokens": 1500, "messages": [{"role": "user", "content": prompt}]}, timeout=60)
+    return r.json()["content"][0]["text"]
+
 def detectar_temas_urgentes():
     hora = datetime.now().strftime("%H:%M")
     fecha = datetime.now().strftime("%d/%m/%Y")
@@ -154,17 +160,8 @@ def main():
                 if revisar_respuesta_telegram():
                     print("  Max dijo SI - generando libreto urgente...")
                     enviar_telegram(f"⚙️ Generando libreto urgente para: <b>{tema}</b>\nListo en 2 minutos...")
-                    subprocess.run([
-                        "python", "-u",
-                        "C:\\Users\\Max\\youtube-agent\\briefing_competencia.py",
-                        "--urgente", tema
-                    ])
-                    enviar_telegram(
-                        f"✅ <b>Libreto listo</b>\n"
-                        f"Abre: C:\\Users\\Max\\youtube-agent\\briefing_urgente.html\n"
-                        f"Graba AHORA, este tema tiene max 24 horas."
-                    )
-                    break
+                libreto = generar_libreto(tema)
+                enviar_telegram(f"✅ <b>Libreto listo</b>\n\n{libreto}\n\nGraba AHORA, este tema tiene max 24 horas.")
         else:
             print(f"  Sin urgencias. Proxima revision en {INTERVALO_MINUTOS} min.")
 
