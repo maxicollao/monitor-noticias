@@ -10,42 +10,6 @@ TELEGRAM_TOKEN = "8436226379:AAHsZSIIaMb6ROvHvypm4Cdn3vqWg-aARJo"
 TELEGRAM_CHAT_ID = "8309799765"
 INTERVALO_MINUTOS = 30
 
-def publicar_telegraph(tema: str, html_path: str) -> str:
-    """Lee el briefing_urgente.html, extrae el texto y lo publica en Telegraph. Retorna la URL."""
-    try:
-        import re, urllib.request, json
-        with open(html_path, "r", encoding="utf-8", errors="replace") as f:
-            html = f.read()
-        texto = re.sub(r'<[^>]+>', ' ', html)
-        texto = re.sub(r'\s+', ' ', texto).strip()
-        parrafos = [p.strip() for p in texto.split('  ') if p.strip()]
-
-        url_acc = "https://api.telegra.ph/createAccount"
-        data_acc = json.dumps({"short_name": "MaxCollao", "author_name": "Max Collao"}).encode()
-        req_acc = urllib.request.Request(url_acc, data=data_acc, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req_acc, timeout=15) as resp:
-            token = json.loads(resp.read())["result"]["access_token"]
-
-        content = [{"tag": "h3", "children": [f"Libreto urgente: {tema}"]}]
-        for p in parrafos[:80]:
-            if p:
-                content.append({"tag": "p", "children": [p]})
-
-        url_page = "https://api.telegra.ph/createPage"
-        data_page = json.dumps({
-            "access_token": token,
-            "title": f"Libreto urgente — {tema[:50]}",
-            "content": content,
-            "return_content": False
-        }).encode()
-        req_page = urllib.request.Request(url_page, data=data_page, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req_page, timeout=15) as resp:
-            return json.loads(resp.read())["result"]["url"]
-    except Exception as e:
-        print(f"  Telegraph error: {e}")
-        return ""
-
-
 def enviar_telegram(mensaje):
     try:
         requests.post(
@@ -89,26 +53,77 @@ Responde SOLO en JSON sin texto adicional:
 }}"""
 
     try:
-        r = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 1000,
-                "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-                "messages": [{"role": "user", "content": prompt}]
-            },
-            timeout=60
-        )
-        texto = "".join(b.get("text","") for b in r.json().get("content",[]) if b.get("type")=="text")
-        texto = texto.strip()
-        if "```" in texto:
-            texto = texto.split("```")[1].replace("json","").strip()
-        return json.loads(texto)
+        headers = {
+            "x-api-key": ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "anthropic-beta": "web-search-2025-03-05",
+            "Content-Type": "application/json"
+        }
+        messages = [{"role": "user", "content": prompt}]
+
+        # Loop multi-turn para manejar tool_use / tool_result de web_search
+        for intento in range(5):
+            r = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers,
+                json={
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 1500,
+                    "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+                    "messages": messages
+                },
+                timeout=90
+            )
+            data = r.json()
+
+            if "error" in data:
+                print(f"  API error: {data['error'].get('message','')}")
+                return {"hay_urgente": False, "temas": [], "recomendacion": "error"}
+
+            content = data.get("content", [])
+            stop_reason = data.get("stop_reason", "")
+
+            # Si terminó con texto → extraer JSON
+            if stop_reason == "end_turn":
+                texto = "".join(b.get("text","") for b in content if b.get("type")=="text").strip()
+                if not texto:
+                    print("  Respuesta vacia del modelo")
+                    return {"hay_urgente": False, "temas": [], "recomendacion": "error"}
+                if "```" in texto:
+                    partes = texto.split("```")
+                    for parte in partes:
+                        parte = parte.replace("json","").strip()
+                        if parte.startswith("{"):
+                            texto = parte
+                            break
+                # Extraer solo el bloque JSON
+                if "{" in texto:
+                    texto = texto[texto.index("{"):texto.rindex("}")+1]
+                return json.loads(texto)
+
+            # Si hay tool_use → armar tool_result y continuar
+            if stop_reason == "tool_use":
+                messages.append({"role": "assistant", "content": content})
+                tool_results = []
+                for bloque in content:
+                    if bloque.get("type") == "tool_use":
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": bloque.get("id"),
+                            "content": bloque.get("content", "Sin resultados")
+                        })
+                if tool_results:
+                    messages.append({"role": "user", "content": tool_results})
+                continue
+
+            break
+
+        print("  No se obtuvo respuesta JSON tras varios intentos")
+        return {"hay_urgente": False, "temas": [], "recomendacion": "error"}
+
+    except json.JSONDecodeError as e:
+        print(f"  Error parseando JSON: {e}")
+        return {"hay_urgente": False, "temas": [], "recomendacion": "error"}
     except Exception as e:
         print(f"  Error detectando temas: {e}")
         return {"hay_urgente": False, "temas": [], "recomendacion": "error"}
@@ -195,22 +210,11 @@ def main():
                         "C:\\Users\\Max\\youtube-agent\\briefing_competencia.py",
                         "--urgente", tema
                     ])
-                    ruta_html = r"C:\Users\Max\youtube-agent\briefing_urgente.html"
-                    tg_url = publicar_telegraph(tema, ruta_html)
-                    if tg_url:
-                        enviar_telegram(
-                            f"✅ <b>Libreto #{ciclo} listo</b>\n"
-                            f"<b>{tema}</b>\n\n"
-                            f"📄 Abre esto -> {tg_url}\n\n"
-                            f"⚡ Graba AHORA — máximo 24h de vigencia."
-                        )
-                    else:
-                        enviar_telegram(
-                            f"✅ <b>Libreto listo</b>\n"
-                            f"<b>{tema}</b>\n"
-                            f"Abre en PC: briefing_urgente.html\n"
-                            f"⚡ Graba AHORA — máximo 24h."
-                        )
+                    enviar_telegram(
+                        f"✅ <b>Libreto listo</b>\n"
+                        f"Abre: C:\\Users\\Max\\youtube-agent\\briefing_urgente.html\n"
+                        f"Graba AHORA, este tema tiene max 24 horas."
+                    )
                     break
         else:
             print(f"  Sin urgencias. Proxima revision en {INTERVALO_MINUTOS} min.")
