@@ -207,12 +207,12 @@ def main():
                     enviar_telegram(f"⚙️ Generando libreto urgente para: <b>{tema}</b>\nListo en 2 minutos...")
                     subprocess.run([
                         "python", "-u",
-                        "C:\\Users\\Max\\youtube-agent\\briefing_competencia.py",
+                        "briefing_competencia.py",
                         "--urgente", tema
                     ])
                     enviar_telegram(
                         f"✅ <b>Libreto listo</b>\n"
-                        f"Abre: C:\\Users\\Max\\youtube-agent\\briefing_urgente.html\n"
+                        f"✅ Libreto listo. Revisa Telegram.\n"
                         f"Graba AHORA, este tema tiene max 24 horas."
                     )
                     break
