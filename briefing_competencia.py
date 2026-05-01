@@ -395,7 +395,7 @@ def analizar_con_claude(datos):
  
 def guardar_eventos_calendario(eventos):
     if not eventos: return
-    ruta = r"C:\Users\Max\youtube-agent\calendario_semana.json"
+    ruta = os.path.join(os.getcwd(), "calendario_semana.json")
     try:
         with open(ruta, "w", encoding="utf-8") as f:
             json.dump(eventos, f, ensure_ascii=False, indent=2)
@@ -589,7 +589,7 @@ def main():
  
     html = generar_html(analisis, datos, eventos)
     nombre = "briefing_urgente.html" if MODO_URGENTE else "briefing_lunes.html"
-    ruta = f"C:\\Users\\Max\\youtube-agent\\{nombre}"
+    ruta = os.path.join(os.getcwd(), nombre)
     try:
         with open(ruta, "w", encoding="utf-8") as f:
             f.write(html)
