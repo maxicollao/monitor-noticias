@@ -13,7 +13,7 @@ INTERVALO_MINUTOS = 30
 EXPIRACION_MINUTOS = 120
 CHECK_TELEGRAM_SEGUNDOS = 10
 
-BASE_DIR = r"C:\Users\Max\youtube-agent"
+BASE_DIR = os.getcwd() 
 STATE_FILE = os.path.join(BASE_DIR, "monitor_estado.json")
 BRIEFING_SCRIPT = os.path.join(BASE_DIR, "briefing_competencia.py")
 BRIEFING_HTML = os.path.join(BASE_DIR, "briefing_urgente.html")
