@@ -151,7 +151,11 @@ Responde SOLO en JSON sin texto adicional:
                 },
                 timeout=90
             )
-            data = r.json()
+            try:
+                data = r.json()
+            except Exception:
+                print("Respuesta vacía de Claude. Reintentando...")
+                continue
 
             if "error" in data:
                 print(f"  API error: {data['error'].get('message','')}")
