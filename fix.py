@@ -1,5 +1,0 @@
-content = open('monitor_noticias.py', 'r', encoding='utf-8').read() 
-content = content.replace('TELEGRAM_TOKEN = "8436226379:AAHsZSIIaMb6ROvHvypm4Cdn3vqWg-aARJo"', 'TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")') 
-content = content.replace('TELEGRAM_CHAT_ID = "8309799765"', 'TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")') 
-open('monitor_noticias.py', 'w', encoding='utf-8').write(content) 
-print('Listo') 
