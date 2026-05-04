@@ -26,7 +26,7 @@ TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID",  "8309799765")
 
 INTERVALO_HORAS      = 6     # corrida de monitoreo cada 6 horas
 EXPIRACION_MINUTOS   = 120   # alertas vigentes 2 horas
-CHECK_TELEGRAM_SEG   = 10    # revisar Telegram cada 10 segundos
+CHECK_TELEGRAM_SEG   = 30    # revisar Telegram cada 30 segundos
 SCORE_MINIMO         = 8     # solo alertas con urgencia >= 8
 
 # Ruta compatible con Railway (Linux) y Windows
