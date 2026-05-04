@@ -29,6 +29,10 @@ EXPIRACION_MINUTOS   = 120   # alertas vigentes 2 horas
 CHECK_TELEGRAM_SEG   = 30    # revisar Telegram cada 30 segundos
 SCORE_MINIMO         = 8     # solo alertas con urgencia >= 8
 
+# Contador de respuestas no-JSON consecutivas.
+# Telegram solo recibe alerta si llega a 3 seguidas.
+_errores_json_seguidos = 0
+
 # Ruta compatible con Railway (Linux) y Windows
 BASE_DIR   = os.environ.get("BASE_DIR", os.path.dirname(os.path.abspath(__file__)))
 STATE_FILE = os.path.join(BASE_DIR, "roman_estado.json")
@@ -383,8 +387,16 @@ RESPONDE SOLO EN JSON PURO. Sin texto antes ni después. Sin bloques de código.
   "recomendacion": "hacer contenido urgente"
 }}"""
 
+    global _errores_json_seguidos
     log("Detectando noticias (Haiku + web search)...")
     raw_backup = ""
+
+    system_json = (
+        "Eres un sistema de monitoreo de noticias. "
+        "Respondes UNICAMENTE con JSON puro y valido. "
+        "Nunca escribas texto antes ni despues del JSON. "
+        "Nunca te disculpes. Nunca expliques. Solo JSON."
+    )
 
     try:
         headers = {
@@ -403,6 +415,7 @@ RESPONDE SOLO EN JSON PURO. Sin texto antes ni después. Sin bloques de código.
                     json={
                         "model":      "claude-haiku-4-5-20251001",
                         "max_tokens": 3000,
+                        "system":     system_json,
                         "tools":      [{"type": "web_search_20250305", "name": "web_search"}],
                         "messages":   messages
                     },
@@ -441,21 +454,36 @@ RESPONDE SOLO EN JSON PURO. Sin texto antes ni después. Sin bloques de código.
                             texto = parte
                             break
 
-                # Extraer solo el bloque JSON
-                if "{" in texto:
-                    texto = texto[texto.index("{"):texto.rindex("}") + 1]
+                # Si no hay JSON — log silencioso, no molestar a Max
+                if "{" not in texto:
+                    _errores_json_seguidos += 1
+                    log(f"Modelo respondio texto en vez de JSON ({_errores_json_seguidos}/3)")
+                    log(f"RAW: {raw_backup[:200]}")
+                    if _errores_json_seguidos >= 3:
+                        enviar_alerta_tecnica(
+                            f"3 respuestas no-JSON seguidas\n"
+                            f"RAW: {raw_backup[:150]}"
+                        )
+                        _errores_json_seguidos = 0
+                    return {"total_revisados": 0, "hay_urgente": False, "temas": [], "recomendacion": "respuesta_no_json"}
 
-                # Parsear con respaldo y alerta técnica
+                # Extraer bloque JSON
+                texto = texto[texto.index("{"):texto.rindex("}") + 1]
+
+                # Parsear
                 try:
+                    _errores_json_seguidos = 0  # resetear al tener exito
                     return json.loads(texto)
                 except json.JSONDecodeError as e:
+                    _errores_json_seguidos += 1
                     log(f"Error parseando JSON: {e}")
-                    log(f"RAW (primeros 400 chars): {raw_backup[:400]}")
-                    enviar_alerta_tecnica(
-                        f"Bug JSON en corrida de detección\n"
-                        f"Error: {str(e)[:100]}\n"
-                        f"RAW: {raw_backup[:150]}"
-                    )
+                    log(f"RAW: {raw_backup[:400]}")
+                    if _errores_json_seguidos >= 3:
+                        enviar_alerta_tecnica(
+                            f"3 errores JSON seguidos\n"
+                            f"Error: {str(e)[:100]}"
+                        )
+                        _errores_json_seguidos = 0
                     return {"total_revisados": 0, "hay_urgente": False, "temas": [], "recomendacion": "error_json"}
 
             # ─── El modelo quiere buscar: continuar el ciclo ────
