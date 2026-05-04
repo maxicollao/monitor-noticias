@@ -359,9 +359,12 @@ Busca:
 
 Contexto: Max Collao es ex periodista TV chilena (TVN, Canal 13, CHV, 14 años). Ahora creador digital con 117K seguidores en Instagram @maxcollao. Le conviene farándula con ángulo comunicacional, denuncias de estafas, y virales chilenos.
 
+INSTRUCCIÓN DE COBERTURA: Devuelve TODOS los temas que encontraste, no solo el mejor. Incluye todos con su score aunque sean bajos. El sistema filtrará localmente por score.
+
 RESPONDE SOLO EN JSON PURO. Sin texto antes ni después. Sin bloques de código. Sin triple backtick.
 
 {{
+  "total_revisados": 12,
   "hay_urgente": true,
   "temas": [
     {{
@@ -399,7 +402,7 @@ RESPONDE SOLO EN JSON PURO. Sin texto antes ni después. Sin bloques de código.
                     headers=headers,
                     json={
                         "model":      "claude-haiku-4-5-20251001",
-                        "max_tokens": 2000,
+                        "max_tokens": 3000,
                         "tools":      [{"type": "web_search_20250305", "name": "web_search"}],
                         "messages":   messages
                     },
@@ -413,7 +416,7 @@ RESPONDE SOLO EN JSON PURO. Sin texto antes ni después. Sin bloques de código.
 
             if "error" in data:
                 log(f"API error: {data['error'].get('message','')[:100]}")
-                return {"hay_urgente": False, "temas": [], "recomendacion": "error_api"}
+                return {"total_revisados": 0, "hay_urgente": False, "temas": [], "recomendacion": "error_api"}
 
             content     = data.get("content", [])
             stop_reason = data.get("stop_reason", "")
@@ -427,7 +430,7 @@ RESPONDE SOLO EN JSON PURO. Sin texto antes ni después. Sin bloques de código.
 
                 if not texto:
                     log("Respuesta vacía del modelo")
-                    return {"hay_urgente": False, "temas": [], "recomendacion": "vacia"}
+                    return {"total_revisados": 0, "hay_urgente": False, "temas": [], "recomendacion": "vacia"}
 
                 # Limpiar bloques de código si el modelo los añadió igual
                 if "```" in texto:
@@ -453,7 +456,7 @@ RESPONDE SOLO EN JSON PURO. Sin texto antes ni después. Sin bloques de código.
                         f"Error: {str(e)[:100]}\n"
                         f"RAW: {raw_backup[:150]}"
                     )
-                    return {"hay_urgente": False, "temas": [], "recomendacion": "error_json"}
+                    return {"total_revisados": 0, "hay_urgente": False, "temas": [], "recomendacion": "error_json"}
 
             # ─── El modelo quiere buscar: continuar el ciclo ────
             if stop_reason == "tool_use":
@@ -474,11 +477,11 @@ RESPONDE SOLO EN JSON PURO. Sin texto antes ni después. Sin bloques de código.
             break  # stop_reason inesperado
 
         log("Sin JSON tras varios intentos")
-        return {"hay_urgente": False, "temas": [], "recomendacion": "sin_respuesta"}
+        return {"total_revisados": 0, "hay_urgente": False, "temas": [], "recomendacion": "sin_respuesta"}
 
     except Exception as e:
         log(f"Error en detección: {e}")
-        return {"hay_urgente": False, "temas": [], "recomendacion": "error_excepcion"}
+        return {"total_revisados": 0, "hay_urgente": False, "temas": [], "recomendacion": "error_excepcion"}
 
 
 # ─── GENERACIÓN DE CONTENIDO ──────────────────────────────────
@@ -796,17 +799,19 @@ def correr_revision(estado):
 
     datos = detectar_temas_urgentes()
 
-    total        = len(datos.get("temas", []))
+    total_revisados = datos.get("total_revisados", 0)
+    temas_devueltos = datos.get("temas", [])
     temas_validos = [
-        t for t in datos.get("temas", [])
+        t for t in temas_devueltos
         if t.get("conviene_a_max") and t.get("urgencia", 0) >= SCORE_MINIMO
     ]
-    descartados  = total - len(temas_validos)
-    enviados     = 0
+    descartados = len(temas_devueltos) - len(temas_validos)
+    enviados    = 0
 
-    log(f"Titulares revisados:      {total}")
-    log(f"Descartados (score < {SCORE_MINIMO}): {descartados}")
-    log(f"Artículo completo abierto: NO")
+    log(f"Titulares revisados:        {total_revisados}")
+    log(f"Temas devueltos por modelo: {len(temas_devueltos)}")
+    log(f"Descartados (score < {SCORE_MINIMO}):   {descartados}")
+    log(f"Artículo completo abierto:  NO")
 
     if datos.get("hay_urgente") and temas_validos:
         for tema in temas_validos[:2]:  # máximo 2 alertas por corrida
