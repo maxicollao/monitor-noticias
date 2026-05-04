@@ -1,8 +1,5 @@
-﻿[phases.setup]
-nixPkgs = ["python311"]
-
-[phases.install]
-cmds = ["pip install requests"]
+[phases.setup]
+nixPkgs = ["python311", "python311Packages.pip"]
 
 [start]
 cmd = "python monitor_noticias.py"
