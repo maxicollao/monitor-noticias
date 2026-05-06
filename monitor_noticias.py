@@ -27,7 +27,7 @@ TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID",  "8309799765")
 INTERVALO_HORAS      = 6     # corrida de monitoreo cada 6 horas
 EXPIRACION_MINUTOS   = 120   # alertas vigentes 2 horas
 CHECK_TELEGRAM_SEG   = 30    # revisar Telegram cada 30 segundos
-SCORE_MINIMO         = 8     # solo alertas con urgencia >= 8
+SCORE_MINIMO         = 7     # solo alertas con urgencia >= 7
 
 # Contador de respuestas no-JSON consecutivas.
 # Telegram solo recibe alerta si llega a 3 seguidas.
@@ -175,11 +175,22 @@ def _enviar_bloque(texto):
 def enviar_alerta_con_botones(alerta):
     """Envía la alerta con los 4 botones inline."""
     n = alerta["numero"]
+    # Mapeo de categorias de Max a emojis
+    cat_max = alerta.get("categoria_max", "")
+    cat_emojis = {
+        "OPINION_CONTINGENCIA": "🎙️ OPINION / CONTINGENCIA",
+        "DENUNCIA_DIA":         "🚨 DENUNCIA DEL DIA",
+        "PODER_MENSAJE":        "🎯 EL PODER DE TU MENSAJE",
+        "FARANDULA_HUMOR":      "🎭 FARANDULA / HUMOR",
+        "ESTAFAS_ALERTAS":      "⚠️ ESTAFAS / ALERTAS"
+    }
+    cat_label = cat_emojis.get(cat_max, f"📂 {alerta['categoria']}")
+
     mensaje = (
         f"🚨 <b>ALERTA {n} — ROMÁN</b>\n\n"
+        f"<b>{cat_label}</b>\n\n"
         f"📰 <b>Tema:</b> {alerta['tema']}\n"
         f"🔥 <b>Score:</b> {alerta['urgencia']}/10\n"
-        f"📂 <b>Categoría:</b> {alerta['categoria']}\n"
         f"⚡ <b>Por qué ahora:</b> {alerta['por_que_ahora']}\n"
         f"🎯 <b>Para Max:</b> {alerta['razon']}\n"
     )
@@ -348,40 +359,60 @@ def detectar_temas_urgentes():
     hora  = datetime.now().strftime("%H:%M")
     fecha = datetime.now().strftime("%d/%m/%Y")
 
-    prompt = f"""Es {fecha} a las {hora} hora Chile. Busca en internet las noticias más urgentes y virales de Chile ahora mismo.
+    prompt = f"""Es {fecha} a las {hora} hora Chile. Busca las noticias mas urgentes y virales de Chile ahora mismo.
 
-INSTRUCCIÓN CRÍTICA: Usa SOLO los metadatos que entrega el buscador: titular, bajada o descripción breve, fuente, hora de publicación y URL. NO abras artículos completos. NO hagas fetch de URLs individuales. Si con los metadatos no hay información suficiente para evaluar la noticia, ignórala y pasa a la siguiente.
+INSTRUCCION CRITICA: Usa SOLO metadatos del buscador: titular, bajada, fuente, hora, URL.
+NO abras articulos completos. NO hagas fetch de URLs. Solo metadatos.
 
-Fuentes: BioBioChile, La Tercera, Emol, CHV Noticias, Mega, Twitter/X Chile tendencias, TikTok Chile.
+FUENTES (busca en todas):
+La Tercera, El Mercurio, Emol, BioBioChile, Cooperativa, CNN Chile, 24Horas.cl,
+T13, Meganoticias, CHV Noticias, Las Ultimas Noticias (LUN.cl), La Cuarta,
+Publimetro, Glamorama, Canal 13 Espectaculos, El Mostrador, The Clinic,
+Twitter/X Chile tendencias, TikTok Chile viral, Instagram Chile.
 
-Busca:
-- Escándalos de farándula chilena (peleas, revelaciones, suspensiones)
-- Estafas o denuncias que afecten a chilenos comunes
-- Virales de TikTok o redes sociales en Chile
-- Noticias de TV chilena explotando AHORA
-- Cualquier tema reventando en redes chilenas en este momento
+CONTEXTO DE MAX COLLAO:
+Ex periodista TV chilena 14 anos (TVN, Canal 13, CHV). Creador digital 117K @maxcollao.
+Multifacetico: contingencia, farandula, humor, denuncia, analisis.
+Tono: periodista analitico con picante. Critico pero estrategico.
 
-Contexto: Max Collao es ex periodista TV chilena (TVN, Canal 13, CHV, 14 años). Ahora creador digital con 117K seguidores en Instagram @maxcollao. Le conviene farándula con ángulo comunicacional, denuncias de estafas, y virales chilenos.
+BUSCA UNA NOTICIA PARA CADA UNA DE ESTAS 5 CATEGORIAS DE MAX:
 
-INSTRUCCIÓN DE COBERTURA: Devuelve TODOS los temas que encontraste, no solo el mejor. Incluye todos con su score aunque sean bajos. El sistema filtrará localmente por score.
+1. OPINION_CONTINGENCIA: algo que este explotando en Chile donde Max pueda dar
+   su mirada analitica. Politica, economia, sociedad, declaraciones polemicas.
 
-RESPONDE SOLO EN JSON PURO. Sin texto antes ni después. Sin bloques de código. Sin triple backtick.
+2. DENUNCIA_DIA: estafa, abuso, alerta ciudadana con datos duros.
+   Victima concreta, responsable identificable, dato verificable.
+
+3. PODER_MENSAJE: figura publica que comunico mal o metio la pata.
+   Error comunicacional que Max pueda analizar y conectar con su taller.
+
+4. FARANDULA_HUMOR: escandalo, viral, algo entretenido de la farandula chilena
+   o redes sociales. Que todo Chile este comentando.
+
+5. ESTAFAS_ALERTAS: denuncia ciudadana, nueva modalidad de estafa,
+   alerta de Carabineros o PDI que afecte a chilenos comunes.
+
+INSTRUCCION DE COBERTURA: Busca al menos una noticia por categoria.
+Devuelve TODOS los temas encontrados. El sistema filtra por score localmente.
+
+RESPONDE SOLO EN JSON PURO. Sin texto antes ni despues. Sin bloques de codigo.
 
 {{
-  "total_revisados": 12,
+  "total_revisados": 15,
   "hay_urgente": true,
   "temas": [
     {{
       "tema": "nombre exacto con nombres reales",
-      "bajada": "bajada o descripción breve si existe, vacío si no",
+      "bajada": "bajada o descripcion breve",
       "fuente": "nombre del medio",
-      "hora_noticia": "hora de publicación si existe, vacío si no",
-      "link": "URL del artículo si existe, vacío si no",
+      "hora_noticia": "hora si existe",
+      "link": "URL si existe",
       "urgencia": 9,
-      "categoria": "denuncia/farandula/viral/politica/deporte",
-      "por_que_ahora": "razón específica con datos reales de por qué es urgente HOY",
+      "categoria": "denuncia/farandula/viral/contingencia/estafa",
+      "categoria_max": "OPINION_CONTINGENCIA o DENUNCIA_DIA o PODER_MENSAJE o FARANDULA_HUMOR o ESTAFAS_ALERTAS",
+      "por_que_ahora": "razon especifica con datos reales",
       "conviene_a_max": true,
-      "razon": "por qué le conviene a Max Collao específicamente"
+      "razon": "por que le conviene a Max Collao especificamente"
     }}
   ],
   "recomendacion": "hacer contenido urgente"
@@ -504,7 +535,48 @@ RESPONDE SOLO EN JSON PURO. Sin texto antes ni después. Sin bloques de código.
 
             break  # stop_reason inesperado
 
-        log("Sin JSON tras varios intentos")
+        # Fallback: reintentar con prompt ultra simplificado
+        log("Sin JSON tras varios intentos — reintentando con prompt simple...")
+        fecha_fb = datetime.now().strftime("%d/%m/%Y")
+        hora_fb  = datetime.now().strftime("%H:%M")
+        prompt_simple = (
+            f"Es {fecha_fb} a las {hora_fb} hora Chile. "
+            "Busca las 3 noticias mas virales de Chile ahora mismo. "
+            "Responde SOLO con JSON valido, sin texto antes ni despues:\n"
+            '{"total_revisados":10,"hay_urgente":true,"temas":['
+            '{"tema":"REEMPLAZA con noticia real","bajada":"descripcion","fuente":"medio",'
+            '"hora_noticia":"","link":"","urgencia":8,"categoria":"farandula",'
+            '"por_que_ahora":"esta viral ahora","conviene_a_max":true,'
+            '"razon":"contenido para Max Collao periodista chileno"}],'
+            '"recomendacion":"grabar hoy"}'
+        )
+        try:
+            r2 = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers,
+                json={
+                    "model":      "claude-haiku-4-5-20251001",
+                    "max_tokens": 2000,
+                    "system":     "Respondes UNICAMENTE con JSON valido. Cero texto adicional.",
+                    "tools":      [{"type": "web_search_20250305", "name": "web_search"}],
+                    "messages":   [{"role": "user", "content": prompt_simple}]
+                },
+                timeout=90
+            )
+            data2 = r2.json()
+            content2 = data2.get("content", [])
+            texto2 = "".join(b.get("text","") for b in content2 if b.get("type")=="text").strip()
+            if texto2 and "{" in texto2:
+                try:
+                    bloque = texto2[texto2.index("{"):texto2.rindex("}")+1]
+                    resultado = json.loads(bloque)
+                    log(f"Fallback exitoso — temas: {len(resultado.get('temas',[]))}")
+                    return resultado
+                except Exception:
+                    pass
+        except Exception as e2:
+            log(f"Fallback tambien fallo: {e2}")
+
         return {"total_revisados": 0, "hay_urgente": False, "temas": [], "recomendacion": "sin_respuesta"}
 
     except Exception as e:
@@ -842,7 +914,7 @@ def correr_revision(estado):
     log(f"Artículo completo abierto:  NO")
 
     if datos.get("hay_urgente") and temas_validos:
-        for tema in temas_validos[:2]:  # máximo 2 alertas por corrida
+        for tema in temas_validos[:5]:  # máximo 5 alertas por corrida (una por categoria)
             alerta = crear_alerta(estado, tema)
             log(f"ALERTA {alerta['numero']} [{alerta['urgencia']}/10]: {alerta['tema']}")
             enviar_alerta_con_botones(alerta)
