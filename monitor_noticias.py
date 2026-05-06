@@ -395,7 +395,11 @@ BUSCA UNA NOTICIA PARA CADA UNA DE ESTAS 5 CATEGORIAS DE MAX:
 INSTRUCCION DE COBERTURA: Busca al menos una noticia por categoria.
 Devuelve TODOS los temas encontrados. El sistema filtra por score localmente.
 
-RESPONDE SOLO EN JSON PURO. Sin texto antes ni despues. Sin bloques de codigo.
+INSTRUCCION CRITICA DE FORMATO:
+Tu respuesta debe empezar DIRECTAMENTE con {{ y terminar con }}.
+CERO texto antes. CERO texto despues. CERO explicaciones.
+Si no hay noticias urgentes, devuelve JSON con urgencia 5-6 y hay_urgente: false.
+NUNCA digas que no puedes responder en JSON. Responde SIEMPRE en JSON.
 
 {{
   "total_revisados": 15,
@@ -424,9 +428,11 @@ RESPONDE SOLO EN JSON PURO. Sin texto antes ni despues. Sin bloques de codigo.
 
     system_json = (
         "Eres un sistema de monitoreo de noticias. "
-        "Respondes UNICAMENTE con JSON puro y valido. "
-        "Nunca escribas texto antes ni despues del JSON. "
-        "Nunca te disculpes. Nunca expliques. Solo JSON."
+        "REGLA ABSOLUTA: Respondes UNICAMENTE con JSON puro y valido. "
+        "PROHIBIDO escribir texto antes o despues del JSON. "
+        "PROHIBIDO disculparse, explicar, o decir que no puedes. "
+        "Si no encuentras noticias urgentes, igual devuelves JSON con lo que encontraste con urgencia baja. "
+        "NUNCA digas que no puedes responder en JSON. SIEMPRE devuelves JSON. Solo JSON. Nada mas."
     )
 
     try:
