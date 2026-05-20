@@ -318,26 +318,22 @@ def detectar_temas_urgentes():
 
     prompt = f"""Hora Chile: {fecha} {hora}
 
-🚨 CRÍTICO — FRESCURA OBLIGATORIA:
+🔥 PRIORIDAD MÁXIMA: FRESCURA + URGENCIA
+
 Busca las 5 noticias MÁS URGENTES de Chile usando web search.
 
-REGLA ABSOLUTA DE FRESCURA:
-SOLO noticias publicadas en las ÚLTIMAS 24 HORAS desde AHORA.
-Si una noticia tiene más de 24 horas, DESCÁRTALA automáticamente.
-Si una noticia no tiene fecha clara, DESCÁRTALA.
+CRITERIO DE FRESCURA (balanceado):
+- PRIORIZAR FUERTE noticias de HOY y AYER (últimas 24-48 horas)
+- Noticias de hace 3-7 días: SOLO si son excepcionalmente urgentes y siguen siendo relevantes HOY
+- Noticias de hace 2+ semanas (ej: 8 de mayo): NUNCA incluir
 
-PRIORIDAD:
-1. Noticias de HOY (máxima prioridad)
-2. Noticias de AYER en las últimas 24h (aceptable)
-3. Noticias de hace 2+ días (RECHAZAR SIEMPRE)
+EJEMPLOS HOY es {fecha}:
+✅ IDEAL: Noticia publicada HOY o ayer
+✅ ACEPTABLE: Noticia de hace 2-3 días SI sigue siendo trending HOY
+❌ RECHAZAR: Noticia del 8 de mayo (hace 12 días)
+❌ RECHAZAR: Noticia antigua que ya no es relevante
 
-VERIFICACIÓN DE FECHA:
-Antes de incluir una noticia, verificar que sea de las últimas 24 horas.
-Ejemplo HOY es {fecha}:
-✅ Noticia de ayer noche → ACEPTAR
-✅ Noticia de hoy madrugada → ACEPTAR  
-❌ Noticia de hace 2 días → RECHAZAR
-❌ Noticia de la semana pasada → RECHAZAR
+BALANCE: Priorizar frescura, pero si una noticia de hace 2 días está EXPLOTANDO HOY (gobierno, crisis), incluirla. La clave es RELEVANCIA ACTUAL, no solo fecha de publicación
 
 FUENTES principales Chile (priorizar disponibles):
 La Tercera, El Mercurio, Emol, BioBioChile, Cooperativa, CNN Chile, 
@@ -349,12 +345,15 @@ Creador digital 117K @maxcollao. Temas: contingencia, farandula,
 denuncia, analisis. Tono: periodista analitico con picante.
 
 PRIORIZA NOTICIAS QUE:
-- Son de las ÚLTIMAS 24 HORAS (verificar fecha)
-- Están EXPLOTANDO ahora (gobierno, crisis, escándalos)
-- Todo Chile está comentando HOY
-- Tienen impacto real y emocional ACTUAL
+- Son FRESCAS (preferir últimas 24-48h, pero no absolutista)
+- Están EXPLOTANDO AHORA (gobierno, crisis, escándalos)
+- Todo Chile está comentando HOY (relevancia actual)
+- Tienen impacto real y emocional VIGENTE
 - Son perfectas para video corto (60 segundos)
-- Tienen fecha de publicación clara y reciente
+
+RECHAZAR AUTOMÁTICAMENTE:
+- Noticias de hace 2+ semanas sin relevancia actual
+- Noticias antiguas que ya pasaron de moda
 
 CATEGORIAS (solo para clasificar):
 1. OPINION_CONTINGENCIA: politica, economia, sociedad, declaraciones
