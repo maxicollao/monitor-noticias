@@ -316,9 +316,12 @@ def detectar_temas_urgentes():
     hora  = datetime.now().strftime("%H:%M")
     fecha = datetime.now().strftime("%d/%m/%Y")
 
-    prompt = f"""Es {fecha} a las {hora} hora Chile.
+    prompt = f"""Hora Chile: {fecha} {hora}
 
-Busca las 10 noticias MAS URGENTES y VIRALES de Chile en este momento usando web search.
+Busca las 10 noticias MAS URGENTES y VIRALES de Chile AHORA (últimas 24 horas) usando web search.
+
+PRIORIDAD: noticias de HOY. Si no hay suficientes urgentes de hoy, incluir de ayer.
+Lo importante: URGENCIA + VIRALIDAD + FRESCURA (no fecha exacta).
 
 FUENTES principales Chile (priorizar disponibles):
 La Tercera, El Mercurio, Emol, BioBioChile, Cooperativa, CNN Chile, 
