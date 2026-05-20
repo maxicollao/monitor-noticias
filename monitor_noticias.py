@@ -318,10 +318,26 @@ def detectar_temas_urgentes():
 
     prompt = f"""Hora Chile: {fecha} {hora}
 
-Busca las 10 noticias MAS URGENTES y VIRALES de Chile AHORA (últimas 24 horas) usando web search.
+🚨 CRÍTICO — FRESCURA OBLIGATORIA:
+Busca las 5 noticias MÁS URGENTES de Chile usando web search.
 
-PRIORIDAD: noticias de HOY. Si no hay suficientes urgentes de hoy, incluir de ayer.
-Lo importante: URGENCIA + VIRALIDAD + FRESCURA (no fecha exacta).
+REGLA ABSOLUTA DE FRESCURA:
+SOLO noticias publicadas en las ÚLTIMAS 24 HORAS desde AHORA.
+Si una noticia tiene más de 24 horas, DESCÁRTALA automáticamente.
+Si una noticia no tiene fecha clara, DESCÁRTALA.
+
+PRIORIDAD:
+1. Noticias de HOY (máxima prioridad)
+2. Noticias de AYER en las últimas 24h (aceptable)
+3. Noticias de hace 2+ días (RECHAZAR SIEMPRE)
+
+VERIFICACIÓN DE FECHA:
+Antes de incluir una noticia, verificar que sea de las últimas 24 horas.
+Ejemplo HOY es {fecha}:
+✅ Noticia de ayer noche → ACEPTAR
+✅ Noticia de hoy madrugada → ACEPTAR  
+❌ Noticia de hace 2 días → RECHAZAR
+❌ Noticia de la semana pasada → RECHAZAR
 
 FUENTES principales Chile (priorizar disponibles):
 La Tercera, El Mercurio, Emol, BioBioChile, Cooperativa, CNN Chile, 
@@ -333,10 +349,12 @@ Creador digital 117K @maxcollao. Temas: contingencia, farandula,
 denuncia, analisis. Tono: periodista analitico con picante.
 
 PRIORIZA NOTICIAS QUE:
-- Estan EXPLOTANDO ahora (gobierno, crisis, escandalos)
-- Todo Chile esta comentando
-- Tienen impacto real y emocional
+- Son de las ÚLTIMAS 24 HORAS (verificar fecha)
+- Están EXPLOTANDO ahora (gobierno, crisis, escándalos)
+- Todo Chile está comentando HOY
+- Tienen impacto real y emocional ACTUAL
 - Son perfectas para video corto (60 segundos)
+- Tienen fecha de publicación clara y reciente
 
 CATEGORIAS (solo para clasificar):
 1. OPINION_CONTINGENCIA: politica, economia, sociedad, declaraciones
@@ -345,7 +363,7 @@ CATEGORIAS (solo para clasificar):
 4. FARANDULA_HUMOR: escandalos, viral, entretenimiento
 5. ESTAFAS_ALERTAS: denuncias ciudadanas, nuevas modalidades
 
-DEVUELVE LAS 10 MAS URGENTES ordenadas por urgencia (10 primero).
+DEVUELVE LAS 5 MAS URGENTES ordenadas por urgencia (10 primero, luego 9, etc).
 
 FORMATO JSON (SOLO JSON, sin texto antes ni despues):
 {{
@@ -798,7 +816,7 @@ def correr_revision(estado):
     # Enviar alertas
     enviados = 0
     if datos.get("hay_urgente") and temas_validos:
-        for tema in temas_validos[:10]:
+        for tema in temas_validos[:5]:  # Máximo 5 alertas por corrida
             alerta = crear_alerta(estado, tema)
             log(f"🚨 ALERTA {alerta['numero']} [{alerta['urgencia']}/10]: {alerta['tema'][:50]}")
             enviar_alerta_con_botones(alerta)
