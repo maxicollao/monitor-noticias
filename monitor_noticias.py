@@ -318,9 +318,9 @@ def detectar_temas_urgentes():
 
     prompt = f"""Es {fecha} a las {hora} hora Chile.
 
-Busca las 10 noticias MAS URGENTES y VIRALES de Chile en este momento.
+Busca las 10 noticias MAS URGENTES y VIRALES de Chile en este momento usando web search.
 
-FUENTES (busca en TODAS):
+FUENTES principales Chile (priorizar disponibles):
 La Tercera, El Mercurio, Emol, BioBioChile, Cooperativa, CNN Chile, 
 24Horas.cl, T13, Meganoticias, CHV, LUN, La Cuarta, El Mostrador, 
 The Clinic, Twitter/X Chile, Instagram Chile, TikTok Chile.
