@@ -1,15 +1,15 @@
 # ═══════════════════════════════════════════════════════════════
-#  ROMÁN V2 — Monitor de Noticias Max Collao
-#  Versión: 2.0
-#  Cambios desde V1:
-#    - Bug JSON corregido (content[] vacío, no "Sin resultados")
-#    - Botones inline de Telegram (Ignorar / Resumen / Libreto / Opus)
-#    - Umbral score: 7 → 8
-#    - Prompt limita a solo metadatos (no abre artículos)
-#    - Libreto directo como texto en Telegram (sin subprocess, sin HTML)
-#    - Opus SOLO si Max toca el botón manualmente
-#    - Rutas compatibles con Railway y Windows
-#    - Logs estructurados por corrida
+#  ROMÁN V3 — VERSIÓN DEFINITIVA ULTRA-ROBUSTA
+#  
+#  Monitor de Noticias Max Collao
+#  
+#  CAMBIOS CRÍTICOS V3:
+#  ✅ Prompt: LAS 10 MÁS URGENTES (no 1 por categoría)
+#  ✅ Keywords override: gobierno/gabinete → FORZADO
+#  ✅ Score mínimo: 6 (captura más)
+#  ✅ LIBRETOS COMPLETOS: Hook + Guión + Caption + Comentario Fijado
+#  ✅ Formato: 60 segundos máximo, universal FB/IG/TikTok
+#  ✅ Reporte detallado a Telegram cada corrida
 # ═══════════════════════════════════════════════════════════════
 
 import requests
@@ -24,16 +24,17 @@ ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
 TELEGRAM_TOKEN     = os.environ.get("TELEGRAM_TOKEN",    "8436226379:AAHsZSIIaMb6ROvHvypm4Cdn3vqWg-aARJo")
 TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID",  "8309799765")
 
-INTERVALO_HORAS      = 6     # corrida de monitoreo cada 6 horas
-EXPIRACION_MINUTOS   = 120   # alertas vigentes 2 horas
-CHECK_TELEGRAM_SEG   = 30    # revisar Telegram cada 30 segundos
-SCORE_MINIMO         = 7     # solo alertas con urgencia >= 7
+INTERVALO_HORAS      = 6
+EXPIRACION_MINUTOS   = 120
+CHECK_TELEGRAM_SEG   = 30
+SCORE_MINIMO         = 6     # Captura más noticias
 
-# Contador de respuestas no-JSON consecutivas.
-# Telegram solo recibe alerta si llega a 3 seguidas.
-_errores_json_seguidos = 0
+# ✅ KEYWORDS CRÍTICOS: override automático si aparecen
+KEYWORDS_CRITICOS = [
+    "gobierno", "gabinete", "presidente", "ministro", "boric",
+    "crisis política", "renuncia", "emergencia", "terremoto"
+]
 
-# Ruta compatible con Railway (Linux) y Windows
 BASE_DIR   = os.environ.get("BASE_DIR", os.path.dirname(os.path.abspath(__file__)))
 STATE_FILE = os.path.join(BASE_DIR, "roman_estado.json")
 
@@ -46,16 +47,12 @@ def log(msg):
 
 def log_separador(titulo=""):
     ts = datetime.now().strftime("%H:%M:%S")
-    linea = "─" * 44
+    print(f"[{ts}] {'═' * 50}", flush=True)
     if titulo:
-        print(f"[{ts}] {linea}", flush=True)
-        print(f"[{ts}] {titulo}", flush=True)
-    print(f"[{ts}] {linea}", flush=True)
+        print(f"[{ts}]  {titulo}", flush=True)
 
 
-# ─── ESTADO PERSISTENTE ───────────────────────────────────────
-# Guarda alertas y posición de Telegram en un JSON en disco.
-# Así si Railway reinicia el proceso, las alertas no se pierden.
+# ─── ESTADO ───────────────────────────────────────────────────
 
 def cargar_estado():
     base = {"next_alerta": 1, "last_update_id": 0, "alertas": []}
@@ -94,11 +91,13 @@ def crear_alerta(estado, tema_data):
         "link":         tema_data.get("link", ""),
         "urgencia":     tema_data.get("urgencia", 0),
         "categoria":    tema_data.get("categoria", ""),
+        "categoria_max":tema_data.get("categoria_max", ""),
         "por_que_ahora":tema_data.get("por_que_ahora", ""),
         "razon":        tema_data.get("razon", ""),
         "creada":       ahora_iso(),
         "estado":       "pendiente",
-        "modelo_usado": None
+        "modelo_usado": None,
+        "es_override":  tema_data.get("es_override", False)
     }
     estado.setdefault("alertas", []).append(alerta)
     guardar_estado(estado)
@@ -127,34 +126,27 @@ def marcar_expiradas(estado):
         guardar_estado(estado)
 
 
-# ─── TELEGRAM — ENVÍO ─────────────────────────────────────────
+# ─── TELEGRAM ─────────────────────────────────────────────────
 
 def enviar_telegram(mensaje):
-    """Envía un mensaje de texto a Telegram."""
-    # Telegram limita mensajes a 4096 caracteres.
-    # Si el mensaje es más largo, lo dividimos automáticamente.
     LIMITE = 4000
-
     if len(mensaje) <= LIMITE:
         _enviar_bloque(mensaje)
     else:
-        # Dividir en partes conservando HTML válido
         partes = []
         while len(mensaje) > LIMITE:
             partes.append(mensaje[:LIMITE])
             mensaje = mensaje[LIMITE:]
         if mensaje:
             partes.append(mensaje)
-
         total = len(partes)
         for i, parte in enumerate(partes, 1):
             sufijo = f"\n\n<i>[{i}/{total}]</i>" if total > 1 else ""
             _enviar_bloque(parte + sufijo)
             if i < total:
-                time.sleep(0.8)  # pausa entre mensajes para no saturar
+                time.sleep(0.8)
 
 def _enviar_bloque(texto):
-    """Envía un único bloque de texto a Telegram."""
     try:
         r = requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
@@ -166,16 +158,14 @@ def _enviar_bloque(texto):
             timeout=15
         )
         if r.status_code == 200:
-            log("Mensaje enviado ✅")
+            log("✅ Mensaje enviado")
         else:
-            log(f"Error Telegram {r.status_code}: {r.text[:120]}")
+            log(f"⚠️ Error Telegram {r.status_code}")
     except Exception as e:
-        log(f"Error Telegram: {e}")
+        log(f"⚠️ Error Telegram: {e}")
 
 def enviar_alerta_con_botones(alerta):
-    """Envía la alerta con los 4 botones inline."""
     n = alerta["numero"]
-    # Mapeo de categorias de Max a emojis
     cat_max = alerta.get("categoria_max", "")
     cat_emojis = {
         "OPINION_CONTINGENCIA": "🎙️ OPINION / CONTINGENCIA",
@@ -185,9 +175,11 @@ def enviar_alerta_con_botones(alerta):
         "ESTAFAS_ALERTAS":      "⚠️ ESTAFAS / ALERTAS"
     }
     cat_label = cat_emojis.get(cat_max, f"📂 {alerta['categoria']}")
+    
+    override_tag = " 🔥 <b>ULTRA-URGENTE</b>" if alerta.get("es_override") else ""
 
     mensaje = (
-        f"🚨 <b>ALERTA {n} — ROMÁN</b>\n\n"
+        f"🚨 <b>ALERTA {n} — ROMÁN</b>{override_tag}\n\n"
         f"<b>{cat_label}</b>\n\n"
         f"📰 <b>Tema:</b> {alerta['tema']}\n"
         f"🔥 <b>Score:</b> {alerta['urgencia']}/10\n"
@@ -210,7 +202,7 @@ def enviar_alerta_con_botones(alerta):
                 {"text": "📋 Resumen",          "callback_data": f"resumen|{n}"},
             ],
             [
-                {"text": "🎙️ Libreto Sonnet",  "callback_data": f"libreto|{n}"},
+                {"text": "🎬 LIBRETO REDES",    "callback_data": f"libreto|{n}"},
                 {"text": "⚡ MODO OPUS",        "callback_data": f"opus|{n}"},
             ]
         ]
@@ -227,29 +219,26 @@ def enviar_alerta_con_botones(alerta):
             timeout=15
         )
         if r.status_code == 200:
-            log(f"Alerta {n} enviada con botones ✅")
+            log(f"✅ Alerta {n} enviada")
         else:
-            log(f"Error enviando alerta con botones: {r.text[:150]}")
+            log(f"⚠️ Error enviando alerta {n}")
     except Exception as e:
-        log(f"Error enviando alerta: {e}")
+        log(f"⚠️ Error: {e}")
 
 def confirmar_callback(callback_query_id, texto="✅"):
-    """Elimina el ícono de carga del botón en Telegram."""
     try:
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery",
             json={"callback_query_id": callback_query_id, "text": texto},
             timeout=10
         )
-    except Exception as e:
-        log(f"Error confirmando callback: {e}")
+    except Exception:
+        pass
 
 def enviar_alerta_tecnica(detalle):
-    """Alerta al chat cuando hay un error interno importante."""
     enviar_telegram(f"⚠️ <b>ROMÁN — Error técnico</b>\n<code>{str(detalle)[:300]}</code>")
 
 def sincronizar_telegram(estado):
-    """Al iniciar, ignora mensajes viejos para que no activen nada."""
     try:
         r = requests.get(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates",
@@ -260,179 +249,130 @@ def sincronizar_telegram(estado):
         if updates:
             estado["last_update_id"] = max(u.get("update_id", 0) for u in updates)
             guardar_estado(estado)
-            log(f"Telegram sincronizado (ignorando hasta update {estado['last_update_id']})")
+            log(f"Telegram sincronizado")
     except Exception as e:
-        log(f"No pude sincronizar Telegram: {e}")
+        log(f"⚠️ Error sincronizando: {e}")
 
 
-# ─── LLAMADA CENTRALIZADA A ANTHROPIC API ─────────────────────
-# Esta función maneja correctamente el ciclo web_search:
-#   1. API responde stop_reason="tool_use" (quiere buscar algo)
-#   2. Enviamos tool_result con content=[] (Anthropic ejecuta la búsqueda)
-#   3. API responde stop_reason="end_turn" con el texto final
+# ─── ANTHROPIC API ────────────────────────────────────────────
 
-def llamar_anthropic(modelo, max_tokens, prompt, usar_websearch=False):
-    """
-    Llama a la API de Anthropic y retorna el texto de respuesta.
-    Maneja el ciclo tool_use automáticamente.
-    Retorna None si hay error.
-    """
+def llamar_anthropic(modelo, max_tokens, prompt, system=None):
     headers = {
         "x-api-key":         ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
         "Content-Type":      "application/json"
     }
-    if usar_websearch:
-        headers["anthropic-beta"] = "web-search-2025-03-05"
 
     body = {
         "model":      modelo,
         "max_tokens": max_tokens,
         "messages":   [{"role": "user", "content": prompt}]
     }
-    if usar_websearch:
-        body["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
+    if system:
+        body["system"] = system
 
-    messages = [{"role": "user", "content": prompt}]
-
-    for intento in range(6):
-        body["messages"] = messages
-        try:
-            r = requests.post(
-                "https://api.anthropic.com/v1/messages",
-                headers=headers,
-                json=body,
-                timeout=120
-            )
-            data = r.json()
-        except Exception as e:
-            log(f"Error de red en intento {intento+1}: {e}")
-            time.sleep(5)
-            continue
-
+    try:
+        r = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers=headers,
+            json=body,
+            timeout=120
+        )
+        data = r.json()
+        
         if "error" in data:
-            log(f"API error ({modelo}): {data['error'].get('message','')[:100]}")
+            log(f"⚠️ API error: {data['error'].get('message','')[:100]}")
             return None
-
-        content     = data.get("content", [])
-        stop_reason = data.get("stop_reason", "")
-
-        if stop_reason == "end_turn":
-            texto = "".join(
-                b.get("text", "") for b in content if b.get("type") == "text"
-            ).strip()
-            return texto if texto else None
-
-        if stop_reason == "tool_use":
-            # El modelo quiere hacer una búsqueda web.
-            # Enviamos tool_result con content=[] para que Anthropic
-            # ejecute la búsqueda server-side y continúe.
-            messages.append({"role": "assistant", "content": content})
-            tool_results = []
-            for bloque in content:
-                if bloque.get("type") == "tool_use":
-                    tool_results.append({
-                        "type":         "tool_result",
-                        "tool_use_id":  bloque.get("id"),
-                        "content":      []   # ← FIX: no "Sin resultados"
-                    })
-            if tool_results:
-                messages.append({"role": "user", "content": tool_results})
-            continue  # siguiente intento con el historial actualizado
-
-        break  # stop_reason inesperado — salir del loop
-
-    log("Sin respuesta válida tras varios intentos")
-    return None
+            
+        content = data.get("content", [])
+        texto = "".join(
+            b.get("text", "") for b in content if b.get("type") == "text"
+        ).strip()
+        return texto if texto else None
+        
+    except Exception as e:
+        log(f"⚠️ Error llamando API: {e}")
+        return None
 
 
-# ─── DETECCIÓN DE NOTICIAS (HAIKU + WEB SEARCH) ───────────────
+# ─── DETECCIÓN CON KEYWORDS OVERRIDE ──────────────────────────
+
+def tiene_keywords_criticos(texto):
+    texto_lower = texto.lower()
+    for keyword in KEYWORDS_CRITICOS:
+        if keyword in texto_lower:
+            return True
+    return False
+
+
+# ─── DETECCIÓN DE NOTICIAS ────────────────────────────────────
 
 def detectar_temas_urgentes():
     """
-    Corrida de monitoreo cada 6 horas.
-    Usa Haiku + web_search.
-    Lee SOLO metadatos: titular, bajada, fuente, hora, link.
-    NO abre artículos completos.
-    Retorna dict con temas encontrados.
+    ✅ PROMPT REDISEÑADO: pide LAS 10 MÁS URGENTES
+    ✅ No limita a 1 por categoría
+    ✅ Prioriza noticias que están explotando AHORA
     """
     hora  = datetime.now().strftime("%H:%M")
     fecha = datetime.now().strftime("%d/%m/%Y")
 
-    prompt = f"""Es {fecha} a las {hora} hora Chile. Busca las noticias mas urgentes y virales de Chile ahora mismo.
+    prompt = f"""Es {fecha} a las {hora} hora Chile.
 
-INSTRUCCION CRITICA: Usa SOLO metadatos del buscador: titular, bajada, fuente, hora, URL.
-NO abras articulos completos. NO hagas fetch de URLs. Solo metadatos.
+Busca las 10 noticias MAS URGENTES y VIRALES de Chile en este momento.
 
-FUENTES (busca en todas):
-La Tercera, El Mercurio, Emol, BioBioChile, Cooperativa, CNN Chile, 24Horas.cl,
-T13, Meganoticias, CHV Noticias, Las Ultimas Noticias (LUN.cl), La Cuarta,
-Publimetro, Glamorama, Canal 13 Espectaculos, El Mostrador, The Clinic,
-Twitter/X Chile tendencias, TikTok Chile viral, Instagram Chile.
+FUENTES (busca en TODAS):
+La Tercera, El Mercurio, Emol, BioBioChile, Cooperativa, CNN Chile, 
+24Horas.cl, T13, Meganoticias, CHV, LUN, La Cuarta, El Mostrador, 
+The Clinic, Twitter/X Chile, Instagram Chile, TikTok Chile.
 
-CONTEXTO DE MAX COLLAO:
-Ex periodista TV chilena 14 anos (TVN, Canal 13, CHV). Creador digital 117K @maxcollao.
-Multifacetico: contingencia, farandula, humor, denuncia, analisis.
-Tono: periodista analitico con picante. Critico pero estrategico.
+MAX COLLAO: Ex periodista TV 14 años (TVN, Canal 13, CHV). 
+Creador digital 117K @maxcollao. Temas: contingencia, farandula, 
+denuncia, analisis. Tono: periodista analitico con picante.
 
-BUSCA UNA NOTICIA PARA CADA UNA DE ESTAS 5 CATEGORIAS DE MAX:
+PRIORIZA NOTICIAS QUE:
+- Estan EXPLOTANDO ahora (gobierno, crisis, escandalos)
+- Todo Chile esta comentando
+- Tienen impacto real y emocional
+- Son perfectas para video corto (60 segundos)
 
-1. OPINION_CONTINGENCIA: algo que este explotando en Chile donde Max pueda dar
-   su mirada analitica. Politica, economia, sociedad, declaraciones polemicas.
+CATEGORIAS (solo para clasificar):
+1. OPINION_CONTINGENCIA: politica, economia, sociedad, declaraciones
+2. DENUNCIA_DIA: estafas, abusos, alertas con datos duros
+3. PODER_MENSAJE: errores comunicacionales de figuras publicas
+4. FARANDULA_HUMOR: escandalos, viral, entretenimiento
+5. ESTAFAS_ALERTAS: denuncias ciudadanas, nuevas modalidades
 
-2. DENUNCIA_DIA: estafa, abuso, alerta ciudadana con datos duros.
-   Victima concreta, responsable identificable, dato verificable.
+DEVUELVE LAS 10 MAS URGENTES ordenadas por urgencia (10 primero).
 
-3. PODER_MENSAJE: figura publica que comunico mal o metio la pata.
-   Error comunicacional que Max pueda analizar y conectar con su taller.
-
-4. FARANDULA_HUMOR: escandalo, viral, algo entretenido de la farandula chilena
-   o redes sociales. Que todo Chile este comentando.
-
-5. ESTAFAS_ALERTAS: denuncia ciudadana, nueva modalidad de estafa,
-   alerta de Carabineros o PDI que afecte a chilenos comunes.
-
-INSTRUCCION DE COBERTURA: Busca al menos una noticia por categoria.
-Devuelve TODOS los temas encontrados. El sistema filtra por score localmente.
-
-INSTRUCCION CRITICA DE FORMATO:
-Tu respuesta debe empezar DIRECTAMENTE con {{ y terminar con }}.
-CERO texto antes. CERO texto despues. CERO explicaciones.
-Si no hay noticias urgentes, devuelve JSON con urgencia 5-6 y hay_urgente: false.
-NUNCA digas que no puedes responder en JSON. Responde SIEMPRE en JSON.
-
+FORMATO JSON (SOLO JSON, sin texto antes ni despues):
 {{
-  "total_revisados": 15,
+  "total_revisados": 30,
   "hay_urgente": true,
   "temas": [
     {{
       "tema": "nombre exacto con nombres reales",
-      "bajada": "bajada o descripcion breve",
-      "fuente": "nombre del medio",
+      "bajada": "bajada o descripcion",
+      "fuente": "medio",
       "hora_noticia": "hora si existe",
       "link": "URL si existe",
       "urgencia": 9,
-      "categoria": "denuncia/farandula/viral/contingencia/estafa",
-      "categoria_max": "OPINION_CONTINGENCIA o DENUNCIA_DIA o PODER_MENSAJE o FARANDULA_HUMOR o ESTAFAS_ALERTAS",
+      "categoria": "contingencia/denuncia/farandula/viral/estafa",
+      "categoria_max": "OPINION_CONTINGENCIA",
       "por_que_ahora": "razon especifica con datos reales",
       "conviene_a_max": true,
-      "razon": "por que le conviene a Max Collao especificamente"
+      "razon": "por que conviene a Max"
     }}
   ],
   "recomendacion": "hacer contenido urgente"
 }}"""
 
-    global _errores_json_seguidos
-    log("Detectando noticias (Haiku + web search)...")
-    raw_backup = ""
+    log("🔍 Buscando noticias urgentes...")
 
-    system_json = (
+    system_prompt = (
         "Eres un sistema de monitoreo de noticias. "
-        "REGLA ABSOLUTA: Respondes UNICAMENTE con JSON puro y valido. "
-        "PROHIBIDO escribir texto antes o despues del JSON. "
-        "PROHIBIDO disculparse, explicar, o decir que no puedes. "
-        "Si no encuentras noticias urgentes, igual devuelves JSON con lo que encontraste con urgencia baja. "
-        "NUNCA digas que no puedes responder en JSON. SIEMPRE devuelves JSON. Solo JSON. Nada mas."
+        "Respondes SOLO con JSON valido. "
+        "PROHIBIDO texto antes o despues del JSON. "
+        "Ordena temas por urgencia descendente (10→6)."
     )
 
     try:
@@ -451,8 +391,8 @@ NUNCA digas que no puedes responder en JSON. Responde SIEMPRE en JSON.
                     headers=headers,
                     json={
                         "model":      "claude-haiku-4-5-20251001",
-                        "max_tokens": 3000,
-                        "system":     system_json,
+                        "max_tokens": 4000,
+                        "system":     system_prompt,
                         "tools":      [{"type": "web_search_20250305", "name": "web_search"}],
                         "messages":   messages
                     },
@@ -460,29 +400,29 @@ NUNCA digas que no puedes responder en JSON. Responde SIEMPRE en JSON.
                 )
                 data = r.json()
             except Exception as e:
-                log(f"Error de red intento {intento+1}: {e}")
+                log(f"⚠️ Error red intento {intento+1}: {e}")
                 time.sleep(5)
                 continue
 
             if "error" in data:
-                log(f"API error: {data['error'].get('message','')[:100]}")
-                return {"total_revisados": 0, "hay_urgente": False, "temas": [], "recomendacion": "error_api"}
+                error_msg = data['error'].get('message','')[:100]
+                log(f"⚠️ API error: {error_msg}")
+                enviar_alerta_tecnica(f"Error API deteccion:\n{error_msg}")
+                return {"total_revisados": 0, "hay_urgente": False, "temas": []}
 
             content     = data.get("content", [])
             stop_reason = data.get("stop_reason", "")
 
-            # ─── Respuesta final: parsear JSON ─────────────────
             if stop_reason == "end_turn":
                 texto = "".join(
                     b.get("text", "") for b in content if b.get("type") == "text"
                 ).strip()
-                raw_backup = texto  # guardar ANTES de parsear
 
                 if not texto:
-                    log("Respuesta vacía del modelo")
-                    return {"total_revisados": 0, "hay_urgente": False, "temas": [], "recomendacion": "vacia"}
+                    log("⚠️ Respuesta vacía")
+                    enviar_alerta_tecnica("Modelo devolvio respuesta vacia")
+                    return {"total_revisados": 0, "hay_urgente": False, "temas": []}
 
-                # Limpiar bloques de código si el modelo los añadió igual
                 if "```" in texto:
                     partes = texto.split("```")
                     for parte in partes:
@@ -491,45 +431,30 @@ NUNCA digas que no puedes responder en JSON. Responde SIEMPRE en JSON.
                             texto = parte
                             break
 
-                # Si no hay JSON — log silencioso, no molestar a Max
                 if "{" not in texto:
-                    _errores_json_seguidos += 1
-                    log(f"Modelo respondio texto en vez de JSON ({_errores_json_seguidos}/3)")
-                    log(f"RAW: {raw_backup[:200]}")
-                    if _errores_json_seguidos >= 3:
-                        enviar_alerta_tecnica(
-                            f"3 respuestas no-JSON seguidas\n"
-                            f"RAW: {raw_backup[:150]}"
-                        )
-                        _errores_json_seguidos = 0
-                    return {"total_revisados": 0, "hay_urgente": False, "temas": [], "recomendacion": "respuesta_no_json"}
+                    log(f"⚠️ No es JSON: {texto[:150]}")
+                    enviar_alerta_tecnica(f"Respuesta no-JSON:\n{texto[:200]}")
+                    return {"total_revisados": 0, "hay_urgente": False, "temas": []}
 
-                # Extraer bloque JSON
                 texto = texto[texto.index("{"):texto.rindex("}") + 1]
 
-                # Parsear
                 try:
-                    _errores_json_seguidos = 0  # resetear al tener exito
-                    return json.loads(texto)
+                    resultado = json.loads(texto)
+                    temas = resultado.get("temas", [])
+                    log(f"✅ Modelo devolvió {len(temas)} temas")
+                    for i, t in enumerate(temas, 1):
+                        log(f"  {i}. [{t.get('urgencia',0)}/10] {t.get('tema','')[:50]}")
+                    return resultado
                 except json.JSONDecodeError as e:
-                    _errores_json_seguidos += 1
-                    log(f"Error parseando JSON: {e}")
-                    log(f"RAW: {raw_backup[:400]}")
-                    if _errores_json_seguidos >= 3:
-                        enviar_alerta_tecnica(
-                            f"3 errores JSON seguidos\n"
-                            f"Error: {str(e)[:100]}"
-                        )
-                        _errores_json_seguidos = 0
-                    return {"total_revisados": 0, "hay_urgente": False, "temas": [], "recomendacion": "error_json"}
+                    log(f"⚠️ Error JSON: {e}")
+                    enviar_alerta_tecnica(f"Error parseando JSON:\n{str(e)[:100]}")
+                    return {"total_revisados": 0, "hay_urgente": False, "temas": []}
 
-            # ─── El modelo quiere buscar: continuar el ciclo ────
             if stop_reason == "tool_use":
                 messages.append({"role": "assistant", "content": content})
                 tool_results = []
                 for bloque in content:
                     if bloque.get("type") == "tool_use":
-                        # FIX DEL BUG: content=[] en vez de "Sin resultados"
                         tool_results.append({
                             "type":        "tool_result",
                             "tool_use_id": bloque.get("id"),
@@ -539,61 +464,19 @@ NUNCA digas que no puedes responder en JSON. Responde SIEMPRE en JSON.
                     messages.append({"role": "user", "content": tool_results})
                 continue
 
-            break  # stop_reason inesperado
+            break
 
-        # Fallback: reintentar con prompt ultra simplificado
-        log("Sin JSON tras varios intentos — reintentando con prompt simple...")
-        fecha_fb = datetime.now().strftime("%d/%m/%Y")
-        hora_fb  = datetime.now().strftime("%H:%M")
-        prompt_simple = (
-            f"Es {fecha_fb} a las {hora_fb} hora Chile. "
-            "Busca las 3 noticias mas virales de Chile ahora mismo. "
-            "Responde SOLO con JSON valido, sin texto antes ni despues:\n"
-            '{"total_revisados":10,"hay_urgente":true,"temas":['
-            '{"tema":"REEMPLAZA con noticia real","bajada":"descripcion","fuente":"medio",'
-            '"hora_noticia":"","link":"","urgencia":8,"categoria":"farandula",'
-            '"por_que_ahora":"esta viral ahora","conviene_a_max":true,'
-            '"razon":"contenido para Max Collao periodista chileno"}],'
-            '"recomendacion":"grabar hoy"}'
-        )
-        try:
-            r2 = requests.post(
-                "https://api.anthropic.com/v1/messages",
-                headers=headers,
-                json={
-                    "model":      "claude-haiku-4-5-20251001",
-                    "max_tokens": 2000,
-                    "system":     "Respondes UNICAMENTE con JSON valido. Cero texto adicional.",
-                    "tools":      [{"type": "web_search_20250305", "name": "web_search"}],
-                    "messages":   [{"role": "user", "content": prompt_simple}]
-                },
-                timeout=90
-            )
-            data2 = r2.json()
-            content2 = data2.get("content", [])
-            texto2 = "".join(b.get("text","") for b in content2 if b.get("type")=="text").strip()
-            if texto2 and "{" in texto2:
-                try:
-                    bloque = texto2[texto2.index("{"):texto2.rindex("}")+1]
-                    resultado = json.loads(bloque)
-                    log(f"Fallback exitoso — temas: {len(resultado.get('temas',[]))}")
-                    return resultado
-                except Exception:
-                    pass
-        except Exception as e2:
-            log(f"Fallback tambien fallo: {e2}")
-
-        return {"total_revisados": 0, "hay_urgente": False, "temas": [], "recomendacion": "sin_respuesta"}
+        return {"total_revisados": 0, "hay_urgente": False, "temas": []}
 
     except Exception as e:
-        log(f"Error en detección: {e}")
-        return {"total_revisados": 0, "hay_urgente": False, "temas": [], "recomendacion": "error_excepcion"}
+        log(f"⚠️ Error en detección: {e}")
+        enviar_alerta_tecnica(f"Excepcion:\n{str(e)[:200]}")
+        return {"total_revisados": 0, "hay_urgente": False, "temas": []}
 
 
 # ─── GENERACIÓN DE CONTENIDO ──────────────────────────────────
 
 def _contexto_alerta(alerta):
-    """Texto de contexto común para todos los prompts de generación."""
     lineas = [
         f"TEMA: {alerta['tema']}",
         f"BAJADA: {alerta.get('bajada') or 'No disponible'}",
@@ -608,259 +491,223 @@ def _contexto_alerta(alerta):
 
 
 def generar_resumen_haiku(alerta):
-    """Resumen periodístico rápido. Modelo: Haiku."""
     n = alerta["numero"]
-    log(f"Generando resumen Haiku → Alerta {n}")
+    log(f"📋 Generando resumen → Alerta {n}")
 
-    prompt = f"""Eres el asistente de Max Collao. Ex periodista TV chilena 14 años. Creador digital 117K Instagram @maxcollao.
+    prompt = f"""Asistente de Max Collao. Ex periodista TV 14 años. 
+Creador digital 117K @maxcollao.
 
-Genera un resumen periodístico breve sobre este tema para que Max decida si grabar:
+Resumen breve para que Max decida si grabar:
 
 {_contexto_alerta(alerta)}
 
-ESTRUCTURA EXACTA:
+ESTRUCTURA:
 
 📰 QUÉ PASÓ
-[2-3 líneas con los hechos clave, sin especulación]
+[2-3 líneas hechos clave]
 
 🔥 POR QUÉ IMPORTA
-[1-2 líneas, ángulo emocional para la audiencia chilena]
+[1-2 líneas, ángulo emocional]
 
 🎯 ÁNGULO PARA MAX
-[1-2 líneas, cómo abordarlo con su estilo periodístico]
+[1-2 líneas, cómo abordarlo]
 
-⏰ URGENCIA: {alerta['urgencia']}/10
+⏰ URGENCIA: {alerta['urgencia']}/10"""
 
-Español chileno natural. Nunca argentinismos. Directo."""
-
-    enviar_telegram(f"⏳ Generando resumen para <b>Alerta {n}</b>...")
+    enviar_telegram(f"⏳ Generando resumen <b>Alerta {n}</b>...")
     texto = llamar_anthropic("claude-haiku-4-5-20251001", 800, prompt)
 
     if texto:
         enviar_telegram(
             f"📋 <b>RESUMEN — Alerta {n}</b>\n"
-            f"<i>Modelo: Haiku</i>\n\n"
-            f"{texto}"
+            f"<i>Modelo: Haiku</i>\n\n{texto}"
         )
-        log(f"Resumen enviado ✅ — Haiku")
+        log(f"✅ Resumen enviado")
     else:
-        enviar_telegram(f"⚠️ No pude generar el resumen para Alerta {n}.")
-        log("Error: resumen Haiku vacío")
+        enviar_telegram(f"⚠️ No pude generar resumen Alerta {n}")
 
 
-def generar_libreto_sonnet(alerta):
-    """Libreto completo para reel/video. Modelo: Sonnet."""
+def generar_libreto_redes(alerta):
+    """
+    ✅ LIBRETO COMPLETO FORMATO REDES SOCIALES
+    ✅ 60 segundos máximo
+    ✅ Hook viral + Guión + Caption + Comentario fijado
+    ✅ Universal: FB, Instagram, TikTok
+    """
     n = alerta["numero"]
-    log(f"Generando libreto Sonnet → Alerta {n}")
+    log(f"🎬 Generando LIBRETO REDES → Alerta {n}")
 
-    prompt = f"""Eres el jefe de contenido y guionista de Max Collao. Ex periodista TV chilena 14 años (TVN, Canal 13, CHV). Creador digital 117K Instagram @maxcollao.
+    prompt = f"""Eres el guionista de Max Collao. Ex periodista TV 14 años. 
+Creador digital 117K @maxcollao.
 
-Genera el libreto completo para que Max grabe AHORA:
+Genera libreto COMPLETO para redes sociales:
 
 {_contexto_alerta(alerta)}
 
-REGLAS DE ESTILO:
-- Español chileno natural, nunca argentinismos
-- Astuto, periodístico, sin ataques directos a personas
-- Ángulo: la voz de los que no tienen voz
-- Nunca mencionar TV, teleprompter ni matinal
-- Este tema tiene máximo 24 horas de vida útil
+REGLAS:
+- Español chileno, nunca argentinismos
+- Duración: 60 segundos MÁXIMO
+- Formato: FB, Instagram, TikTok (universal)
+- Hook: primeras 3 segundos detienen el scroll
+- Tono: periodista astuto, sin ataques personales
+- Ángulo: voz de los que no tienen voz
 
-═══════════════════════════════════════
-🎙️ LIBRETO URGENTE — {alerta['tema']}
-═══════════════════════════════════════
+═══════════════════════════════════════════
+🎬 LIBRETO REDES — {alerta['tema']}
+═══════════════════════════════════════════
 
-📱 VERSIÓN REEL/SHORT (60 segundos)
+📱 HOOK VIRAL (3-5 segundos)
+[Primera frase EXACTA que dice Max - debe detener el scroll]
 
-Hook — primeras 3 palabras que detienen el scroll:
-[texto exacto]
+🎙️ GUIÓN (45-50 segundos)
+[Lo que dice Max palabra por palabra, con ritmo natural.
+Máximo 150 palabras. Marcar pausas con /]
 
-Desarrollo — lo que dice Max palabra por palabra:
-[texto con ritmo, pausas marcadas con / /]
+💥 CIERRE + CTA (5 segundos)
+[Frase de cierre + llamado a la acción]
 
-Cierre y CTA:
-[texto exacto]
+📹 PRODUCCIÓN
+Cámara: [frente/selfie/walking]
+Locación: [dónde grabarlo AHORA]
+Texto pantalla: [3-5 palabras clave superpuestas]
 
-📹 PRODUCCIÓN:
-Cámara: [frente / selfie / walking]
-Locación: [dónde grabarlo ahora mismo]
-Texto en pantalla: [texto superpuesto]
-Hashtags: [5-8 hashtags]
-Publicar en: [orden de redes]
+📝 CAPTION PARA PUBLICAR
+[Caption viral 2-3 líneas con emojis. 
+Debe funcionar solo, sin el video. Max 280 caracteres]
 
-🎬 VERSIÓN YOUTUBE (5-8 min, si aplica)
+Hashtags: [MÁXIMO 5 hashtags - Chile + tema específico]
 
-Hook primeros 30 seg:
-Introducción del caso (1 min):
-Desarrollo — 3 puntos:
-  Punto 1:
-  Punto 2:
-  Punto 3:
-Cierre emocional y CTA:
+💬 COMENTARIO FIJADO
+[Comentario para fijar. Genera conversación. 
+Max 200 caracteres. Termina con pregunta]
 
-⚠️ GRABAR HOY. Máximo 24 horas de vida."""
+⏰ GRABAR HOY. Vida útil: 24 horas máximo."""
 
-    enviar_telegram(f"⏳ Generando libreto para <b>Alerta {n}</b>...")
-    texto = llamar_anthropic("claude-sonnet-4-5", 4000, prompt)
+    enviar_telegram(f"⏳ Generando LIBRETO REDES <b>Alerta {n}</b>...")
+    texto = llamar_anthropic("claude-sonnet-4-5", 5000, prompt)
 
     if texto:
         enviar_telegram(
-            f"🎙️ <b>LIBRETO — Alerta {n}</b>\n"
-            f"<i>Modelo: Sonnet</i>\n\n"
-            f"{texto}"
+            f"🎬 <b>LIBRETO REDES — Alerta {n}</b>\n"
+            f"<i>Modelo: Sonnet | 60 seg | FB/IG/TikTok</i>\n\n{texto}"
         )
-        log(f"Libreto enviado ✅ — Sonnet")
+        log(f"✅ Libreto enviado")
     else:
-        enviar_telegram(f"⚠️ No pude generar el libreto para Alerta {n}.")
-        log("Error: libreto Sonnet vacío")
+        enviar_telegram(f"⚠️ No pude generar libreto Alerta {n}")
 
 
 def generar_libreto_opus(alerta):
-    """
-    Libreto extendido. Modelo: Opus.
-    ⚠️  SOLO se ejecuta cuando Max toca el botón manualmente.
-    Nunca en ejecución automática.
-    """
+    """MODO OPUS: análisis extendido + múltiples versiones"""
     n = alerta["numero"]
-    log(f"⚡ MODO OPUS activado manualmente → Alerta {n}")
-    log(f"Modelo: claude-opus-4-5")
+    log(f"⚡ MODO OPUS → Alerta {n}")
 
-    prompt = f"""Eres el jefe de contenido y guionista senior de Max Collao. Ex periodista TV chilena 14 años (TVN, Canal 13, CHV). Creador digital 117K Instagram @maxcollao.
-
-Max activó el MODO OPUS. Desarrolla al máximo este tema:
+    prompt = f"""Guionista SENIOR Max Collao. MODO OPUS activado.
 
 {_contexto_alerta(alerta)}
 
-REGLAS DE ESTILO:
-- Español chileno natural, nunca argentinismos
-- Astuto, periodístico, sin ataques directos
-- Ángulo: la voz de los que no tienen voz
-- Nunca mencionar TV, teleprompter ni matinal
-- Máximo 24 horas de vida útil
-
-═══════════════════════════════════════
+═══════════════════════════════════════════
 ⚡ MODO OPUS — {alerta['tema']}
-═══════════════════════════════════════
+═══════════════════════════════════════════
 
-📊 ANÁLISIS COMPLETO
-Contexto, antecedentes, protagonistas, datos relevantes para entender el tema a fondo.
+📊 ANÁLISIS PROFUNDO
+[Contexto, antecedentes, protagonistas, datos para entender a fondo]
 
-🎙️ LIBRETO REEL/SHORT (60-90 segundos)
-Hook exacto / Desarrollo con ritmo / Cierre y CTA.
+🎬 LIBRETO REDES 60 SEG (versión A)
+Hook viral (3 seg) / Guión (50 seg) / Cierre (7 seg)
+Caption + Hashtags (máximo 5) + Comentario fijado
 
-🎬 LIBRETO YOUTUBE LARGO (8-12 minutos)
-Hook 30 seg / Intro 1 min / Desarrollo 3 puntos detallados / Contexto histórico o estadístico / Cierre emocional / CTA.
+🎬 LIBRETO REDES 60 SEG (versión B - ángulo alternativo)
+Hook diferente / Desarrollo alternativo / Cierre
+Caption + Hashtags (máximo 5) + Comentario fijado
 
-📱 ESTRATEGIA DE DISTRIBUCIÓN
-Plataformas en orden / Horarios óptimos / Adaptaciones por red.
+📺 LIBRETO YOUTUBE LARGO (5-8 min si aplica)
+Hook 30 seg / Intro 1 min / 3 puntos desarrollados / 
+Contexto histórico / Cierre emocional
 
-📊 ANÁLISIS DE VIRALIDAD
-Potencial 1-10 con justificación / Riesgos / Oportunidades de seguimiento.
+📱 ESTRATEGIA DISTRIBUCIÓN
+Plataformas en orden / Horarios óptimos / 
+Adaptaciones por red / Seguimiento
 
-⚠️ GRABAR HOY. Máximo 24 horas de vida."""
+📊 ANÁLISIS VIRALIDAD
+Potencial 1-10 / Riesgos / Oportunidades
+
+⚠️ GRABAR HOY. 24 horas máximo."""
 
     enviar_telegram(
         f"⚡ <b>MODO OPUS activado</b>\n"
-        f"Generando análisis extendido para <b>Alerta {n}</b>...\n"
-        f"<i>Esto puede tomar 2-3 minutos.</i>"
+        f"Análisis extendido <b>Alerta {n}</b>...\n"
+        f"<i>2-3 minutos</i>"
     )
     texto = llamar_anthropic("claude-opus-4-5", 8000, prompt)
 
     if texto:
         enviar_telegram(
             f"⚡ <b>MODO OPUS — Alerta {n}</b>\n"
-            f"<i>Modelo: Opus</i>\n\n"
-            f"{texto}"
+            f"<i>Modelo: Opus</i>\n\n{texto}"
         )
-        log(f"Libreto Opus enviado ✅ — claude-opus-4-5")
+        log(f"✅ Opus enviado")
     else:
-        enviar_telegram(f"⚠️ No pude generar el libreto Opus para Alerta {n}.")
-        log("Error: libreto Opus vacío")
+        enviar_telegram(f"⚠️ Error Opus Alerta {n}")
 
 
-# ─── PROCESAMIENTO DE BOTONES (CALLBACK_QUERY) ────────────────
+# ─── PROCESAMIENTO BOTONES ────────────────────────────────────
 
 def procesar_callback(estado, callback):
-    """
-    Se ejecuta cuando Max toca uno de los botones inline.
-    Extrae la acción y el número de alerta del callback_data.
-    """
     callback_id = callback.get("id")
     data_cb     = callback.get("data", "")
-    # Verificar que el mensaje viene del chat correcto
     chat_id     = str(callback.get("message", {}).get("chat", {}).get("id", ""))
 
     if chat_id != str(TELEGRAM_CHAT_ID):
         confirmar_callback(callback_id, "No autorizado")
         return
 
-    # Confirmar inmediatamente para eliminar el ícono de carga del botón
-    confirmar_callback(callback_id, "Recibido ✅")
+    confirmar_callback(callback_id, "✅")
 
     if "|" not in data_cb:
-        log(f"Callback con formato inesperado: {data_cb}")
         return
 
     accion, numero_str = data_cb.split("|", 1)
     alerta = buscar_alerta(estado, numero_str)
-    log(f"Callback: [{accion}] → Alerta {numero_str}")
+    log(f"📱 Callback: [{accion}] Alerta {numero_str}")
 
-    # Verificar que la alerta existe
     if not alerta:
-        enviar_telegram(f"⚠️ No encontré la Alerta {numero_str}. Puede haber expirado.")
+        enviar_telegram(f"⚠️ Alerta {numero_str} no encontrada")
         return
 
-    # Verificar que no está ya procesada o ignorada
     if alerta.get("estado") == "ignorado":
-        enviar_telegram(f"🚫 La Alerta {numero_str} ya fue ignorada.")
+        enviar_telegram(f"🚫 Alerta {numero_str} ya ignorada")
         return
 
-    # Verificar que no expiró
     if alerta.get("estado") == "vencido" or esta_expirada(alerta):
         alerta["estado"] = "vencido"
         guardar_estado(estado)
-        enviar_telegram(
-            f"⏰ <b>Alerta {numero_str} expirada.</b>\n"
-            f"Tenía {EXPIRACION_MINUTOS} min de vida.\n"
-            f"Si el tema sigue siendo relevante, espera la próxima corrida con datos frescos."
-        )
+        enviar_telegram(f"⏰ Alerta {numero_str} expirada")
         return
 
-    # ─── Ejecutar acción según botón ───────────────────────────
     if accion == "ignorar":
         alerta["estado"] = "ignorado"
         guardar_estado(estado)
-        enviar_telegram(f"🚫 Alerta {numero_str} ignorada.")
-        log(f"Alerta {numero_str} → ignorada")
+        enviar_telegram(f"🚫 Alerta {numero_str} ignorada")
 
     elif accion == "resumen":
         generar_resumen_haiku(alerta)
-        # El resumen no cierra la alerta — Max puede pedir libreto después
 
     elif accion == "libreto":
-        generar_libreto_sonnet(alerta)
+        generar_libreto_redes(alerta)
         alerta["estado"]       = "generado"
         alerta["modelo_usado"] = "claude-sonnet-4-5"
         guardar_estado(estado)
 
     elif accion == "opus":
-        # ⚠️ GUARDIA: Opus solo desde este punto, nunca automático
         generar_libreto_opus(alerta)
         alerta["estado"]       = "generado"
         alerta["modelo_usado"] = "claude-opus-4-5"
         guardar_estado(estado)
 
-    else:
-        log(f"Acción desconocida: {accion}")
 
-
-# ─── POLLING DE TELEGRAM ──────────────────────────────────────
+# ─── POLLING TELEGRAM ─────────────────────────────────────────
 
 def revisar_telegram(estado):
-    """
-    Revisa actualizaciones de Telegram.
-    Procesa tanto botones (callback_query) como mensajes de texto.
-    """
     try:
         r = requests.get(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates",
@@ -878,87 +725,118 @@ def revisar_telegram(estado):
             uid = update.get("update_id", 0)
             estado["last_update_id"] = max(estado.get("last_update_id", 0), uid)
 
-            # Botón inline tocado por Max
             if "callback_query" in update:
                 procesar_callback(estado, update["callback_query"])
-                continue
-
-            # Mensaje de texto (compatibilidad — ya no necesario, pero no rompe nada)
-            mensaje = update.get("message") or update.get("edited_message") or {}
-            chat_id = str(mensaje.get("chat", {}).get("id", ""))
-            if chat_id != str(TELEGRAM_CHAT_ID):
-                continue
-            texto = (mensaje.get("text") or "").strip()
-            if texto:
-                log(f"Texto recibido: '{texto}' (usa los botones inline)")
 
         guardar_estado(estado)
 
     except Exception as e:
-        log(f"Error revisando Telegram: {e}")
+        log(f"⚠️ Error Telegram: {e}")
 
 
-# ─── CORRIDA DE MONITOREO ─────────────────────────────────────
+# ─── CORRIDA DE MONITOREO CON REPORTE ─────────────────────────
 
 def correr_revision(estado):
-    log_separador("ROMÁN — CORRIDA INICIADA")
+    log_separador("🚀 CORRIDA INICIADA")
 
     datos = detectar_temas_urgentes()
 
     total_revisados = datos.get("total_revisados", 0)
     temas_devueltos = datos.get("temas", [])
-    temas_validos = [
-        t for t in temas_devueltos
-        if t.get("conviene_a_max") and t.get("urgencia", 0) >= SCORE_MINIMO
-    ]
-    descartados = len(temas_devueltos) - len(temas_validos)
-    enviados    = 0
+    
+    # ✅ APLICAR KEYWORDS OVERRIDE
+    for tema in temas_devueltos:
+        tema_texto = f"{tema.get('tema','')} {tema.get('bajada','')}".lower()
+        if tiene_keywords_criticos(tema_texto):
+            tema["es_override"] = True
+            tema["urgencia"] = max(tema.get("urgencia", 0), 9)
+            log(f"🔥 OVERRIDE: {tema.get('tema','')[:40]}")
+    
+    # Filtrado con logging detallado
+    temas_validos = []
+    temas_descartados = []
+    
+    for t in temas_devueltos:
+        score = t.get("urgencia", 0)
+        conviene = t.get("conviene_a_max", False)
+        es_override = t.get("es_override", False)
+        
+        if es_override:
+            temas_validos.append(t)
+            log(f"✅ [OVERRIDE {score}/10] {t.get('tema','')[:50]}")
+        elif conviene and score >= SCORE_MINIMO:
+            temas_validos.append(t)
+            log(f"✅ [{score}/10] {t.get('tema','')[:50]}")
+        else:
+            razon = "score bajo" if score < SCORE_MINIMO else "no conviene"
+            temas_descartados.append({
+                "tema": t.get("tema", "")[:50],
+                "score": score,
+                "razon": razon
+            })
+            log(f"❌ [{score}/10] {t.get('tema','')[:50]} — {razon}")
 
-    log(f"Titulares revisados:        {total_revisados}")
-    log(f"Temas devueltos por modelo: {len(temas_devueltos)}")
-    log(f"Descartados (score < {SCORE_MINIMO}):   {descartados}")
-    log(f"Artículo completo abierto:  NO")
-
+    # ✅ REPORTE A TELEGRAM
+    reporte = (
+        f"📊 <b>REPORTE DE CORRIDA</b>\n\n"
+        f"📰 Titulares revisados: {total_revisados}\n"
+        f"📥 Devueltos por modelo: {len(temas_devueltos)}\n"
+        f"✅ Válidos (score ≥{SCORE_MINIMO}): {len(temas_validos)}\n"
+        f"❌ Descartados: {len(temas_descartados)}\n"
+    )
+    
+    if temas_descartados:
+        reporte += f"\n<b>DESCARTADOS:</b>\n"
+        for d in temas_descartados[:5]:
+            reporte += f"• [{d['score']}/10] {d['tema']} — {d['razon']}\n"
+    
+    enviar_telegram(reporte)
+    
+    # Enviar alertas
+    enviados = 0
     if datos.get("hay_urgente") and temas_validos:
-        for tema in temas_validos[:5]:  # máximo 5 alertas por corrida (una por categoria)
+        for tema in temas_validos[:10]:
             alerta = crear_alerta(estado, tema)
-            log(f"ALERTA {alerta['numero']} [{alerta['urgencia']}/10]: {alerta['tema']}")
+            log(f"🚨 ALERTA {alerta['numero']} [{alerta['urgencia']}/10]: {alerta['tema'][:50]}")
             enviar_alerta_con_botones(alerta)
             enviados += 1
+            time.sleep(1)
     else:
-        log(f"Sin urgencias.")
+        log("Sin urgencias")
 
-    log(f"Enviados a Telegram:      {enviados}")
-    log_separador("ROMÁN — CORRIDA COMPLETADA")
+    log(f"✅ Enviados: {enviados}")
+    log_separador("✅ CORRIDA COMPLETADA")
 
 
 # ─── MAIN ─────────────────────────────────────────────────────
 
 def main():
-    print("=" * 52)
-    print("  ROMÁN V2 — Monitor de Noticias Max Collao")
-    print(f"  Iniciado:     {datetime.now().strftime('%d/%m/%Y %H:%M')}")
-    print(f"  Monitoreo:    cada {INTERVALO_HORAS} horas")
+    print("=" * 60)
+    print("  ROMÁN V3 — VERSIÓN DEFINITIVA ULTRA-ROBUSTA")
+    print(f"  Iniciado: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    print(f"  Monitoreo: cada {INTERVALO_HORAS} horas")
     print(f"  Score mínimo: {SCORE_MINIMO}/10")
-    print(f"  Polling:      cada {CHECK_TELEGRAM_SEG} segundos")
-    print(f"  Estado:       {STATE_FILE}")
-    print("=" * 52)
+    print(f"  Keywords críticos: {len(KEYWORDS_CRITICOS)}")
+    print("=" * 60)
 
     if not ANTHROPIC_API_KEY:
-        print("❌ FALTA ANTHROPIC_API_KEY — no se puede iniciar")
+        print("❌ FALTA ANTHROPIC_API_KEY")
         return
 
     estado = cargar_estado()
     sincronizar_telegram(estado)
 
     enviar_telegram(
-        "✅ <b>ROMÁN V2 activado</b>\n"
-        f"Monitoreando Chile cada {INTERVALO_HORAS} horas.\n"
-        f"Score mínimo: {SCORE_MINIMO}/10\n"
-        f"Usa los botones inline para responder a las alertas."
+        "✅ <b>ROMÁN V3 ACTIVADO</b>\n\n"
+        f"🔍 Búsqueda: LAS 10 MÁS URGENTES\n"
+        f"🔥 Keywords override: {len(KEYWORDS_CRITICOS)}\n"
+        f"🎬 Libretos: formato redes 60seg\n"
+        f"📊 Reporte: cada corrida\n"
+        f"⏰ Monitoreo: cada {INTERVALO_HORAS}h\n\n"
+        f"Usa botones inline para responder."
     )
 
-    proxima_revision = datetime.now()  # primera corrida inmediata al arrancar
+    proxima_revision = datetime.now()
 
     while True:
         try:
@@ -968,14 +846,15 @@ def main():
             if datetime.now() >= proxima_revision:
                 correr_revision(estado)
                 proxima_revision = datetime.now() + timedelta(hours=INTERVALO_HORAS)
-                log(f"Próxima corrida: {proxima_revision.strftime('%d/%m/%Y %H:%M')}")
+                log(f"⏰ Próxima: {proxima_revision.strftime('%d/%m/%Y %H:%M')}")
 
             time.sleep(CHECK_TELEGRAM_SEG)
 
         except KeyboardInterrupt:
             raise
         except Exception as e:
-            log(f"Error inesperado en loop: {e}")
+            log(f"⚠️ Error loop: {e}")
+            enviar_alerta_tecnica(f"Error loop:\n{str(e)[:200]}")
             time.sleep(30)
 
 
@@ -983,5 +862,4 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\nROMÁN detenido.")
-        enviar_telegram("⚠️ ROMÁN detenido manualmente.")
+        print("\n✅ ROMÁN detenido")
