@@ -355,6 +355,19 @@ RECHAZAR AUTOMÁTICAMENTE:
 - Noticias de hace 2+ semanas sin relevancia actual
 - Noticias antiguas que ya pasaron de moda
 
+VARIEDAD OBLIGATORIA:
+NO enviar solo política o solo economía.
+Debe haber BALANCE entre diferentes tipos de contenido:
+
+DISTRIBUCIÓN IDEAL DE LAS 5 NOTICIAS:
+✅ Política/Economía/Gobierno: máximo 2 noticias
+✅ Farándula/Viral/Entretenimiento: mínimo 1 noticia
+✅ Estafas/Denuncias/Alertas: mínimo 1 noticia
+✅ Otros temas relevantes: completar variedad
+
+RECHAZAR corridas donde las 5 noticias son del mismo tema.
+Max necesita VARIEDAD para su audiencia diversa.
+
 CATEGORIAS (solo para clasificar):
 1. OPINION_CONTINGENCIA: politica, economia, sociedad, declaraciones
 2. DENUNCIA_DIA: estafas, abusos, alertas con datos duros
