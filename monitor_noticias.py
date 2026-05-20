@@ -322,18 +322,29 @@ def detectar_temas_urgentes():
 
 Busca las 5 noticias MÁS URGENTES de Chile usando web search.
 
-CRITERIO DE FRESCURA (balanceado):
-- PRIORIZAR FUERTE noticias de HOY y AYER (últimas 24-48 horas)
-- Noticias de hace 3-7 días: SOLO si son excepcionalmente urgentes y siguen siendo relevantes HOY
-- Noticias de hace 2+ semanas (ej: 8 de mayo): NUNCA incluir
+CRITERIO DE FRESCURA (estricto):
+- PREFERIR noticias de HOY (últimas 24 horas)
+- ACEPTAR noticias de AYER (24-48 horas) si son relevantes
+- Noticias de hace 2-3 días: SOLO si están EXPLOTANDO HOY y son trending
+- Noticias de hace 4+ días: RECHAZAR salvo crisis nacional en curso
+- Noticias de hace 2+ semanas: NUNCA incluir
 
 EJEMPLOS HOY es {fecha}:
-✅ IDEAL: Noticia publicada HOY o ayer
-✅ ACEPTABLE: Noticia de hace 2-3 días SI sigue siendo trending HOY
-❌ RECHAZAR: Noticia del 8 de mayo (hace 12 días)
-❌ RECHAZAR: Noticia antigua que ya no es relevante
+✅ IDEAL: Noticia publicada HOY (máxima prioridad)
+✅ BUENO: Noticia de ayer (24-48h)
+⚠️ LÍMITE: Noticia de hace 2 días SI sigue trending HOY
+❌ RECHAZAR: Noticia de hace 3+ días sin relevancia actual
+❌ RECHAZAR: Noticia de hace 2+ semanas
 
-BALANCE: Priorizar frescura, pero si una noticia de hace 2 días está EXPLOTANDO HOY (gobierno, crisis), incluirla. La clave es RELEVANCIA ACTUAL, no solo fecha de publicación
+VERIFICACIÓN DE DATOS:
+Antes de incluir una noticia, verificar:
+- Nombres de personas (ej: Pancho Saavedra = Canal 13, NO TVN)
+- Canales de TV (TVN, Canal 13, CHV, Mega)
+- Cargos públicos actuales
+- Cifras oficiales con fuente
+Si no estás seguro de un dato, NO lo incluyas o usa condicional.
+
+BALANCE: Priorizar noticias de HOY. Solo incluir de ayer o anteayer si siguen siendo trending AHORA.
 
 FUENTES principales Chile (priorizar disponibles):
 La Tercera, El Mercurio, Emol, BioBioChile, Cooperativa, CNN Chile, 
